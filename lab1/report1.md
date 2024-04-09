@@ -119,7 +119,17 @@ def build(self):
 
 生成树协议是一个解决方案, 而且有`ovs-vsctl set bridge <switch_name> stp_enable=true`可以方便地启用STP协议, 但是考虑到运行完STP协议后, `fat tree`将会退化为一颗平凡的树, 而且对于`k=4`的情况, 有4个等价的`core switch`, STP协议只能选择其中一个为根
 
-总而言之, STP会破坏`fat tree`的特性, 于是我们选择手动为每个switch配置静态流表:
+总而言之, STP会破坏`fat tree`的特性. 为了保留`fat tree`的结构, 我们思考其他方法
+
+考察这样一条环路:
+
+![loop](assets/loop.jpg)
+
+其中的问题出现在`A3_1 -> C2`这条报文流上. 按理来说, `aggr switch`应该将从`core switch`处得到的报文转发给`edge switch`, 但这里却重新发回了`core switch`. 于是我们考虑规定报文的流向, 将无向图变为有向图
+
+观察发现, 对于`edge switch`和`aggr switch`来说, 无论何时都应该把"下面"端口的报文转发给"上面"的端口, 同时应该把"上面"端口的报文转发给"下面"端口; 而对于`core switch`, 只需简单地洪泛即可. 于是我们为每个switch配置静态流表:
+
+> 值得注意的是, 可以将上文规定的报文流向作为一条静态检验网络环路的规则, 用于验证交换机配置是否合理
 
 ```python
 # configuring static flow table
@@ -202,6 +212,10 @@ os.system("ovs-ofctl add-flow aggr4_2 in_port=4,actions=output:1,output:2")
 以`h1_1 -> h4_4`为例, 展示数据包流向:
 
 ![packagepath](assets/packagepath.jpg)
+
+在图中我们可以看到, 报文从`h1_1`出发, 到达`E1_1`后被按照流表转发给了与之相连的两个`aggr switch` `A1_1`和`A1_2`, 然后`A1_1`和`A1_2`则转发给了4个`core switch`. `core switch`收到报文后, 转发给`A4_1`和`A4_2`, `A4_1`和`A4_2`则按流表转发给了`E4_2`, 最后由`E4_2`转发给`h4_4`
+
+> 事实上, 图中只画出了最终能到达`h4_4`的报文, 但实际上所有链路上都流动着`h1_1`发送的`ping`请求, 只是非目标主机`drop`了而已
 
 ## 后续: 尝试STP协议
 
