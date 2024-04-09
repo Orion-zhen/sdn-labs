@@ -202,3 +202,43 @@ os.system("ovs-ofctl add-flow aggr4_2 in_port=4,actions=output:1,output:2")
 以`h1_1 -> h4_4`为例, 展示数据包流向:
 
 ![packagepath](assets/packagepath.jpg)
+
+## 后续: 尝试STP协议
+
+### 错误信息
+
+![stpfail](assets/stpfail.png)
+
+可以看到, STP协议并未起作用, 主机之间仍然不能`ping`通
+
+以`edge1_1`为例进行分析, 打印`edge1_1`的相关信息:
+
+![edge1_1-info](assets/edge1_1-info.png)
+
+可以发现, `edge1_1`将自己所有收到的报文都`drop`, 不做任何转发; MAC表也未学习到任何内容
+
+进一步地, 使用wireshark抓包, 试图分析STP协议运行细节:
+
+![stp-messages](assets/stp-messages.png)
+
+可以看到, 在运行协议后, `fat tree`中各个交换机选择将`06:2e:c5:f5:2c:47`这个节点作为根节点, 查看`ifconfig`命令输出, 可以发现, 这是`edge4_2`交换机的MAC地址:
+
+![wrong-root](assets/wrong-root.png)
+
+这并不是一个合理的根节点, 在4个`core`交换机中选取根节点是更合理的
+
+另外可以注意到, `edge1_1`计算得到自己距离`edge4_2`的代价为6, 然而事实上从`fat tree`的拓扑图可以看出, 存在更小的代价, 其值为4
+
+接着, 尝试`h1_1 ping h4_4 -c1`, 在与`h1_1`直接相连的`edge1_1-eth1`上抓取到如下报文:
+
+![arp-observed](assets/arp-observed.png)
+
+可以看到, 为了发送`ping`消息, `h1_1`首先运行了ARP协议. 可是`edge1_1`已经自我配置为将所有收到的报文都`drop`, 故`h1_1`不会收到任何回复
+
+抓取`edge1_1-eth4`端口的消息, 验证了上述结论:
+
+![no-arp-message](assets/no-arp-message.png)
+
+### 问题分析
+
+可以看到, STP协议似乎不是很适用于类似`fat tree`这样的复杂网络拓扑, 不仅在于可能会不合理地选择根节点以及计算节点之间的代价, 还在于STP不支持多路径利用, 对于`fat tree`这种以多路径为特征的网络, STP带来的链路资源浪费是难以接受的
