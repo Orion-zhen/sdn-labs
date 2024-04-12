@@ -1,4 +1,3 @@
-from mininet.node import Controller, OVSSwitch
 from mininet.log import setLogLevel
 from mininet.net import Mininet
 from mininet.topo import Topo
@@ -114,7 +113,7 @@ def main():
     setLogLevel("info")
     topo = FatTree()
 
-    net = Mininet(topo=topo, controller=Controller, switch=OVSSwitch)
+    net = Mininet(topo=topo)
     net.start()
 
     # aggr1_1 = net.get('aggr1_1')
