@@ -19,3 +19,23 @@ sudo ovs-vsctl set bridge core1 stp_enable=true
 sudo ovs-vsctl set bridge core2 stp_enable=true
 sudo ovs-vsctl set bridge core3 stp_enable=true
 sudo ovs-vsctl set bridge core4 stp_enable=true
+sudo ovs-vsctl del-fail-mode edge1_1
+sudo ovs-vsctl del-fail-mode edge1_2
+sudo ovs-vsctl del-fail-mode edge2_1
+sudo ovs-vsctl del-fail-mode edge2_2
+sudo ovs-vsctl del-fail-mode edge3_1
+sudo ovs-vsctl del-fail-mode edge3_2
+sudo ovs-vsctl del-fail-mode edge4_1
+sudo ovs-vsctl del-fail-mode edge4_2
+sudo ovs-vsctl del-fail-mode aggr1_1
+sudo ovs-vsctl del-fail-mode aggr1_2
+sudo ovs-vsctl del-fail-mode aggr2_1
+sudo ovs-vsctl del-fail-mode aggr2_2
+sudo ovs-vsctl del-fail-mode aggr3_1
+sudo ovs-vsctl del-fail-mode aggr3_2
+sudo ovs-vsctl del-fail-mode aggr4_1
+sudo ovs-vsctl del-fail-mode aggr4_2
+sudo ovs-vsctl del-fail-mode core1
+sudo ovs-vsctl del-fail-mode core2
+sudo ovs-vsctl del-fail-mode core3
+sudo ovs-vsctl del-fail-mode core4
