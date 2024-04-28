@@ -2,9 +2,9 @@ services:
     ryu:
         stdin_open: true
         tty: true
-        network_mode: host
-        # ports:
-        #     - 6633:6633
-        #     - 9090:8080
+        # network_mode: host
+        ports:
+            - 6633:6633
+            - 9090:8080
         container_name: my-ryu
         image: ryu:v1
