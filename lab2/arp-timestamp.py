@@ -92,24 +92,23 @@ class Switch_Dict(app_manager.RyuApp):
             self.mac_to_port[dpid][eth_src] = in_port
         
         arp_pkt = pkt.get_protocol(arp.arp)
-        if (arp_pkt):
-            if arp_pkt.opcode == arp.ARP_REQUEST:
-                # ARP request
-                # get the ip
-                arp_src_ip = arp_pkt.src_ip
-                arp_dst_ip = arp_pkt.dst_ip
-                # arp for the first time
-                if arp_src_ip not in self.latest_stamp[dpid]:
-                    self.latest_stamp[dpid].setdefault(arp_src_ip, {})
-                    self.latest_stamp[dpid][arp_src_ip][arp_dst_ip] = ev.timestamp
-                # another dst ip, update, too
-                elif arp_dst_ip not in self.latest_stamp[dpid][arp_src_ip]:
-                    self.latest_stamp[dpid][arp_src_ip].setdefault(arp_dst_ip, {})
-                    self.latest_stamp[dpid][arp_src_ip][arp_dst_ip] = ev.timestamp
-                # arp for the second time
-                elif ev.timestamp - self.latest_stamp[dpid][arp_src_ip][arp_dst_ip] < ARP_TIMEOUT:
-                    print(f"SW[{dpid}]: Gap between two ARP request is {ev.timestamp - self.latest_stamp[dpid][arp_src_ip][arp_dst_ip]}s, too short. DROP")
-                    return
+        if arp_pkt and arp_pkt.opcode == arp.ARP_REQUEST:
+            # ARP request
+            # get the ip
+            arp_src_ip = arp_pkt.src_ip
+            arp_dst_ip = arp_pkt.dst_ip
+            # arp for the first time
+            if arp_src_ip not in self.latest_stamp[dpid]:
+                self.latest_stamp[dpid].setdefault(arp_src_ip, {})
+                self.latest_stamp[dpid][arp_src_ip][arp_dst_ip] = ev.timestamp
+            # another dst ip, update, too
+            elif arp_dst_ip not in self.latest_stamp[dpid][arp_src_ip]:
+                self.latest_stamp[dpid][arp_src_ip].setdefault(arp_dst_ip, {})
+                self.latest_stamp[dpid][arp_src_ip][arp_dst_ip] = ev.timestamp
+            # arp for the second time
+            elif ev.timestamp - self.latest_stamp[dpid][arp_src_ip][arp_dst_ip] < ARP_TIMEOUT:
+                print(f"SW[{dpid}]: Gap between two ARP request is {ev.timestamp - self.latest_stamp[dpid][arp_src_ip][arp_dst_ip]}s, too short. DROP")
+                return
         
         if eth_dst in self.mac_to_port[dpid]:
             out_port = self.mac_to_port[dpid][eth_dst]

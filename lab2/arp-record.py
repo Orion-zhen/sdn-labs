@@ -92,7 +92,7 @@ class Switch_Dict(app_manager.RyuApp):
             arp_pkt = pkt.get_protocol(arp.arp)
 
             # ARP request packet
-            if arp_pkt.opcode == arp.ARP_REQUEST:
+            if arp_pkt and arp_pkt.opcode == arp.ARP_REQUEST:
                 req_dst_ip = arp_pkt.dst_ip
                 arp_src_mac = arp_pkt.src_mac
 

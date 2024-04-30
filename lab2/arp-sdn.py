@@ -91,72 +91,69 @@ class Switch_Dict(app_manager.RyuApp):
 
         arp_pkt = pkt.get_protocol(arp.arp)
         # deal with arp request
-        if arp_pkt:
-            if arp_pkt.opcode == arp.ARP_REQUEST:
-                arp_src_ip = arp_pkt.src_ip
-                arp_src_mac = arp_pkt.src_mac
+        if arp_pkt and arp_pkt.opcode == arp.ARP_REQUEST:
+            arp_src_ip = arp_pkt.src_ip
+            arp_src_mac = arp_pkt.src_mac
 
-                arp_dst_ip = arp_pkt.dst_ip
+            arp_dst_ip = arp_pkt.dst_ip
 
-                # the switch knows the mac
-                if arp_src_ip in self.switch_to_host[dpid]:
-                    # construct an arp reply
-                    reply_eth_dst = None
-                    # traverse to find the corresponding mac
-                    for switch in self.switch_to_host:
-                        if arp_dst_ip in self.switch_to_host[switch]:
-                            reply_eth_dst = self.switch_to_host[switch][arp_dst_ip][
-                                "mac"
-                            ]
-                            break
-                    if reply_eth_dst == None:
-                        print(f"No MAC address found for IP {arp_dst_ip}")
-                        return
+            # the switch knows the mac
+            if arp_src_ip in self.switch_to_host[dpid]:
+                # construct an arp reply
+                reply_eth_dst = None
+                # traverse to find the corresponding mac
+                for switch in self.switch_to_host:
+                    if arp_dst_ip in self.switch_to_host[switch]:
+                        reply_eth_dst = self.switch_to_host[switch][arp_dst_ip]["mac"]
+                        break
+                if reply_eth_dst == None:
+                    print(f"No MAC address found for IP {arp_dst_ip}")
+                    return
 
-                    arp_reply = packet.Packet()
-                    # ethernet protocol
-                    arp_reply.add_protocol(
-                        ethernet.ethernet(
-                            ethertype=eth_pkt.ethertype,
-                            dst=eth_src,
-                            src=reply_eth_dst,
-                        )
+                arp_reply = packet.Packet()
+                # ethernet protocol
+                arp_reply.add_protocol(
+                    ethernet.ethernet(
+                        ethertype=eth_pkt.ethertype,
+                        dst=eth_src,
+                        src=reply_eth_dst,
                     )
-                    # arp protocol
-                    arp_reply.add_protocol(
-                        arp.arp(
-                            opcode=arp.ARP_REPLY,
-                            src_mac=reply_eth_dst,
-                            src_ip=arp_dst_ip,
-                            dst_mac=arp_src_mac,
-                            dst_ip=arp_src_ip,
-                        )
+                )
+                # arp protocol
+                arp_reply.add_protocol(
+                    arp.arp(
+                        opcode=arp.ARP_REPLY,
+                        src_mac=reply_eth_dst,
+                        src_ip=arp_dst_ip,
+                        dst_mac=arp_src_mac,
+                        dst_ip=arp_src_ip,
                     )
-                    # serialize an object to raw binary string
-                    arp_reply.serialize()
-                    actions = [parser.OFPActionOutput(in_port)]
-                    out = parser.OFPPacketOut(
-                        datapath=dp,
-                        buffer_id=ofp.OFP_NO_BUFFER,
-                        in_port=ofp.OFPP_CONTROLLER,
-                        actions=actions,
-                        data=arp_reply.data,
-                    )
-                    dp.send_msg(out)
-                    print(f"ARP reply sent to {arp_src_ip}")
-                # the switch doesn't know the mac
-                else:
-                    self.switch_to_host[dpid].setdefault(arp_src_ip, {})
-                    self.switch_to_host[dpid][arp_src_ip]["mac"] = arp_src_mac
-                    self.switch_to_host[dpid][arp_src_ip]["port"] = in_port
-                    print(
-                        f"SW[{dpid}] Learned to Host {arp_src_ip} | {arp_src_mac} @ port {in_port}"
-                    )
-                    # add a flow table entity
-                    actions = [parser.OFPActionOutput(in_port)]
-                    match = parser.OFPMatch(eth_dst=arp_src_mac)
-                    self.add_flow(dp, 10, match, actions)
-                return
+                )
+                # serialize an object to raw binary string
+                arp_reply.serialize()
+                actions = [parser.OFPActionOutput(in_port)]
+                out = parser.OFPPacketOut(
+                    datapath=dp,
+                    buffer_id=ofp.OFP_NO_BUFFER,
+                    in_port=ofp.OFPP_CONTROLLER,
+                    actions=actions,
+                    data=arp_reply.data,
+                )
+                dp.send_msg(out)
+                print(f"ARP reply sent to {arp_src_ip}")
+            # the switch doesn't know the mac
+            else:
+                self.switch_to_host[dpid].setdefault(arp_src_ip, {})
+                self.switch_to_host[dpid][arp_src_ip]["mac"] = arp_src_mac
+                self.switch_to_host[dpid][arp_src_ip]["port"] = in_port
+                print(
+                    f"SW[{dpid}] Learned to Host {arp_src_ip} | {arp_src_mac} @ port {in_port}"
+                )
+                # add a flow table entity
+                actions = [parser.OFPActionOutput(in_port)]
+                match = parser.OFPMatch(eth_dst=arp_src_mac)
+                self.add_flow(dp, 10, match, actions)
+            return
 
         # deal with others
         # find the last hop switch to the target host

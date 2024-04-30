@@ -299,9 +299,7 @@ def packet_in_handler(self, ev):
             # traverse to find the corresponding mac
             for switch in self.switch_to_host:
                 if arp_dst_ip in self.switch_to_host[switch]:
-                    reply_eth_dst = self.switch_to_host[switch][arp_dst_ip][
-                        "mac"
-                    ]
+                    reply_eth_dst = self.switch_to_host[switch][arp_dst_ip]["mac"]
                     break
             if reply_eth_dst == None:
                 print(f"No MAC address found for IP {arp_dst_ip}")
