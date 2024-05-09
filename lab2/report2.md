@@ -461,3 +461,44 @@ def get_topo(self, ev):
 即, 只允许一部分`Switch`向所有的端口洪泛报文, 其余的则仅能向连接`Host`的端口转发
 
 > 然而遗憾的是, 受限于自身水平, 我无法提出一个有效的算法来给出允许洪泛的交换机集合, 更无法用代码实现了. 我太弱小了, 没有力量😭
+
+### One more thing
+
+值得注意的是, 如果用特定的顺序去执行`ping`, 可能会出现重复ACK的情况. 经过实测, 在我给出的3个方案(记录`ARP_Request`, `ARP`时间戳和SDN方案)中, 只有SDN方案可以避免重复ACK
+
+简单而不失一般的地 我们取记录`ARP_Request`方案来分析, 按照如下顺序执行`ping`命令:
+
+1. SRI
+    1. SRI `ping` UCLA
+    2. SRI `ping` UCSB
+    3. SRI `ping` UTAH
+2. UCLA
+    1. UCLA `ping` SRI
+    2. UCLA `ping` UCSB
+    3. UCLA `ping` UTAH
+
+成功观测到重复的`ICMP`报文:
+
+![dup-icmp](./assets/dup-icmp.png)
+
+读取相关交换机的流表和4台主机的`MAC`地址:
+
+![dup-flows](./assets/dup-flows.png)
+
+绘制对应的拓扑图和流表项:
+
+![dup-topo](./assets/dup-topo.jpg)
+
+在上图中, 蓝色箭头为`S1`和`S3`的流表项, `S2`的流表项已单独作为表格列出. 不难发现, `S2`的流表的第2, 3, 4项是不合理的, 推测是在自学习阶段收到了不合理的报文导致的
+
+> 至于这些流表项具体是怎么形成的, 恕本人时间有限, 无法详细分析了💔
+
+图中红色的箭头模拟了UCLA `ping` UTAH的报文流向. 由于`S2`中并没有`in_port=1, dl_dst=60(UTAH), out_port=xxx`的流表项, 故`S2`会对该报文进行洪泛. 接着`S1`和`S3`都会收到这条报文, `S1`将报文转发给4号端口, 即`S4`所在端口; `S3`也因为没有对应流表项而洪泛, 导致`S1`再次收到报文并转发给4号端口. 于是`S4`和UTAH就会连续收到两条`ICMP`报文, 导致了重复的`ICMP_Reply`
+
+事实上, 想要复现并不需要严格执行上面的命令, 只要先`pingall`, 然后不仅UCLA `ping` UTAH会出现重复报文, UTAH `ping` UCLA也会出现重复报文:
+
+![multiple-dup](./assets/multiple-dup.png)
+
+想出现重复报文的要诀在于要`ping`对应交换机流表中不存在的项, 这样会出发交换机的洪泛, 就可能出现重复的报文
+
+与此相对的, 在SDN方案中, 因为控制器有全局视野, 所以不会出现自学习中的错误, 也就不会出现重复的报文
