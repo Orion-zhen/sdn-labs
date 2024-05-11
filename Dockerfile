@@ -1,9 +1,9 @@
-FROM ubuntu:20.04
+FROM debian:11
 LABEL maintainer="Orion-zhen"
 RUN apt update
-RUN apt install -y python3 python3-pip python-is-python3 vim
+RUN apt install -y python3 python3-pip vim
 COPY ./ /work/
-RUN pip3 install -r /work/requirements.txt
-RUN cd /work/ryu-xjtu && python3 setup.py install
+RUN cd /work/ryu-xjtu && pip install .
+RUN pip install networkx
 EXPOSE 6633 8080
 WORKDIR /work
