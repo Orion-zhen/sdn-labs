@@ -37,6 +37,7 @@ class Switch(app_manager.RyuApp):
         # datapath[dpid] = datapath
         self.datapath = {}
 
+        # remain uninitialized until lldp_handler called
         # all switches for lookup_service_brick()
         self.switches = None
 
@@ -120,7 +121,20 @@ class Switch(app_manager.RyuApp):
             self.ipv4_handler(ipv4_pkt, msg)
 
     def lldp_handler(self, lldp_pkt, msg):
-        pass
+        dp = msg.datapath
+        dpid = dp.id
+        try:
+            src_dpid, src_port_no = LLDPPacket.lldp_parse(msg.data)
+        except LLDPPacket.LLDPUnknownFormat:
+            print(f"encountered unknown format of LLDP packet")
+            return
+
+        if self.switches is None:
+            self.switches = lookup_service_brick("switches")
+        
+        for port in self.switches.port:
+            if src_dpid == port.dpid and src_port_no == port.port_no:
+                self.lldp_delay[(src_dpid, dpid)] = self.switches.ports[port].delay
 
     def arp_handler(self, arp_pkt, msg):
         pass
