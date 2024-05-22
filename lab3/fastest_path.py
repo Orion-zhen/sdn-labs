@@ -115,6 +115,7 @@ class Switch(app_manager.RyuApp):
             self.lldp_handler(lldp_pkt, msg)
 
         if arp_pkt is not None:
+            print(f"arp packet received {arp_pkt}")
             self.arp_handler(arp_pkt, msg)
 
         if ipv4_pkt is not None:
@@ -132,7 +133,7 @@ class Switch(app_manager.RyuApp):
         if self.switches is None:
             self.switches = lookup_service_brick("switches")
 
-        for port in self.switches.port:
+        for port in self.switches.ports:
             if src_dpid == port.dpid and src_port_no == port.port_no:
                 self.lldp_delay[(src_dpid, dpid)] = self.switches.ports[port].delay
 
@@ -143,6 +144,8 @@ class Switch(app_manager.RyuApp):
         parser = dp.ofproto_parser
 
         in_port = msg.match["in_port"]
+        out_port = None
+        eth_dst = None
 
         # determin if a switch-host link
         is_host = True
@@ -159,15 +162,17 @@ class Switch(app_manager.RyuApp):
             arp_src_mac = arp_pkt.src_mac
 
             if arp_src_mac not in self.arp_in_port[dpid]:
-                self.arp_in_port[dpid].setdfault(arp_src_mac, {})
-                self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
-            elif arp_dst_ip not in self.arp_in_port[dpid][arp_src_mac]:
+                self.arp_in_port[dpid].setdefault(arp_src_mac, {})
                 self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
             else:
-                print(
-                    f"SW[{dpid}] packet in port {in_port}, but should be {self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]}. DROP"
-                )
-                return
+                if arp_dst_ip not in self.arp_in_port[dpid][arp_src_mac]:
+                    self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
+                else:
+                    if in_port != self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]:
+                        print(
+                            f"SW[{dpid}] packet in port {in_port}, but should be {self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]}. DROP"
+                        )
+                        return
             out_port = ofp.OFPP_FLOOD
 
         else:
@@ -200,7 +205,156 @@ class Switch(app_manager.RyuApp):
         dp.send_msg(out)
 
     def ipv4_handler(self, ipv4_pkt, msg):
-        pass
+        dp = msg.datapath
+        ofp = dp.ofproto
+        parser = dp.ofproto_parser
+
+        ipv4_src = ipv4_pkt.src
+        ipv4_dst = ipv4_pkt.dst
+
+        dpid_begin = None
+        dpid_final = None
+        port_begin = None
+        port_final = None
+
+        find_begin = None
+        for dpid in self.switch_host:
+            for ip in self.switch_host[dpid]:
+                if ip == ipv4_src:
+                    dpid_begin = dpid
+                    port_begin = self.switch_host[dpid][ip]
+                    find_begin = True
+                    break
+            if find_begin:
+                break
+
+        find_final = False
+        for dpid in self.switch_host:
+            for ip in self.switch_host[dpid]:
+                if ip == ipv4_dst:
+                    dpid_final = dpid
+                    port_final = self.switch_host[dpid][ip]
+                    find_final = True
+                    break
+            if find_final:
+                break
+
+        short_path = nx.dijkstra_path(self.topo_map, dpid_begin, dpid_final)
+        self.shortest_paths[(ipv4_src, ipv4_dst)] = short_path
+        min_delay = nx.dijkstra_path_length(self.topo_map, dpid_begin, dpid_final)
+        print(f"Shortest path found: {short_path}, delay is {min_delay*1000}")
+
+        path = f"{ipv4_src} -> {port_begin}:{dpid_begin}"
+
+        for i in range(len(short_path)):
+            cur_switch = short_path[i]
+
+            if i == 0:
+                next_switch = short_path[i + 1]
+                port = self.switch_switch[cur_switch][next_switch]
+                path += f":{port} -> "
+
+                # backwrd
+                out_port = port_begin
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(
+                    eth_type=0x800,
+                    ipv4_src=ipv4_dst,
+                    ipv4_dst=ipv4_src,
+                )
+                self.add_flow(
+                    self.datapath[cur_switch], 20, match=match, actions=actions
+                )
+
+                # forward
+                out_port = self.switch_switch[cur_switch][next_switch]
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(
+                    eth_type=0x800,
+                    ipv4_src=ipv4_src,
+                    ipv4_dst=ipv4_dst,
+                )
+                self.add_flow(
+                    self.datapath[cur_switch], 20, match=match, actions=actions
+                )
+
+            if i == len(short_path) - 1:
+                pre_switch = short_path[i - 1]
+                port = self.switch_switch[cur_switch][pre_switch]
+                path += f"{port}:{cur_switch}"
+
+                # backward
+                out_port = port
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(
+                    eth_type=0x800,
+                    ipv4_src=ipv4_dst,
+                    ipv4_dst=ipv4_src,
+                )
+                self.add_flow(
+                    self.datapath[cur_switch], 20, match=match, actions=actions
+                )
+
+                # forward
+                out_port = port_final
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(
+                    eth_type=0x800,
+                    ipv4_src=ipv4_src,
+                    ipv4_dst=ipv4_dst,
+                )
+                self.add_flow(
+                    self.datapath[cur_switch], 20, match=match, actions=actions
+                )
+
+            else:
+                pre_switch = short_path[i - 1]
+                next_switch = short_path[i + 1]
+                port1 = self.switch_switch[cur_switch][pre_switch]
+                port2 = self.switch_switch[cur_switch][next_switch]
+                path += f"{port1}:{cur_switch}:{port2} -> "
+
+                # backward
+                out_port = port1
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(
+                    eth_type=0x800,
+                    ipv4_src=ipv4_dst,
+                    ipv4_dst=ipv4_src,
+                )
+                self.add_flow(
+                    self.datapath[cur_switch], 20, match=match, actions=actions
+                )
+
+                # forward
+                out_port = port2
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(
+                    eth_type=0x800,
+                    ipv4_src=ipv4_src,
+                    ipv4_dst=ipv4_dst,
+                )
+                self.add_flow(
+                    self.datapath[cur_switch], 20, match=match, actions=actions
+                )
+
+            path += f":{port_final} -> {ipv4_dst}"
+            print(path)
+
+            out_port = self.switch_switch[short_path[0]][short_path[1]]
+            actions = [parser.OFPActionOutput(out_port)]
+            data = None
+            if msg.buffer_id == ofp.OFP_NO_BUFFER:
+                data = msg.data
+
+            out = parser.OFPPacketOut(
+                datapath=dp,
+                buffer_id=msg.buffer_id,
+                in_port=msg.match["in_port"],
+                actions=actions,
+                data=data,
+            )
+            dp.send_msg(out)
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def port_status_handler(self, ev):
@@ -218,7 +372,7 @@ class Switch(app_manager.RyuApp):
             reson = "DELETE"
         elif msg.reason == ofp.OFPPR_MODIFY:
             reson = "MODIFY"
-            if state == ofp.OFPSPS_LINK_DOWN:
+            if state == ofp.OFPPS_LINK_DOWN:
                 # if port is down, remove the link
                 linked_switch = None
                 for switch in self.switch_switch[dpid]:
@@ -235,7 +389,7 @@ class Switch(app_manager.RyuApp):
                 for ip, path in self.shortest_paths.items():
                     if dpid in path and linked_switch in path:
                         self.delete_flow_entry(path, ip[0], ip[1])
-            elif state == ofp.OFPSPS_LIVE:
+            elif state == ofp.OFPPS_LIVE:
                 # if port is up, update the link
                 for ip_src, ip_dst in self.shortest_paths.keys():
                     dpid_begin = None
@@ -276,7 +430,7 @@ class Switch(app_manager.RyuApp):
         dpid = dp.id
         # record the delay
         self.echo_delay[dpid] = time.time() - self.echo_start[dpid]
-        print(f"echo delay is {self.echo_delay}")
+        # print(f"echo delay is {self.echo_delay}")
 
     def get_topology(self):
         # peridically get topology
@@ -290,7 +444,7 @@ class Switch(app_manager.RyuApp):
             for link in links:
                 self.switch_switch[link.src.dpid][link.dst.dpid] = link.src.port_no
                 self.topo_map.add_edge(link.src.dpid, link.dst.dpid)
-            print(self.topo_map.edges)
+            # print(self.topo_map.edges)
             # sleep
             hub.sleep(GET_TOPOLOGY_INTERVAL)
 
