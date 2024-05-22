@@ -131,13 +131,73 @@ class Switch(app_manager.RyuApp):
 
         if self.switches is None:
             self.switches = lookup_service_brick("switches")
-        
+
         for port in self.switches.port:
             if src_dpid == port.dpid and src_port_no == port.port_no:
                 self.lldp_delay[(src_dpid, dpid)] = self.switches.ports[port].delay
 
     def arp_handler(self, arp_pkt, msg):
-        pass
+        dp = msg.datapath
+        dpid = dp.id
+        ofp = dp.ofproto
+        parser = dp.ofproto_parser
+
+        in_port = msg.match["in_port"]
+
+        # determin if a switch-host link
+        is_host = True
+        for tmp in self.switch_switch[dpid]:
+            if in_port == self.switch_switch[dpid][tmp]:
+                is_host = False
+                break
+        if is_host:
+            arp_src_ip = arp_pkt.src_ip
+            self.switch_host[dpid][arp_src_ip] = in_port
+
+        if arp_pkt.opcode == arp.ARP_REQUEST:
+            arp_dst_ip = arp_pkt.dst_ip
+            arp_src_mac = arp_pkt.src_mac
+
+            if arp_src_mac not in self.arp_in_port[dpid]:
+                self.arp_in_port[dpid].setdfault(arp_src_mac, {})
+                self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
+            elif arp_dst_ip not in self.arp_in_port[dpid][arp_src_mac]:
+                self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
+            else:
+                print(
+                    f"SW[{dpid}] packet in port {in_port}, but should be {self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]}. DROP"
+                )
+                return
+            out_port = ofp.OFPP_FLOOD
+
+        else:
+            pkt = packet.Packet(msg.data)
+            eth_pkt = pkt.get_protocol(ethernet.ethernet)
+            eth_dst = eth_pkt.dst
+
+            if eth_dst in self.mac_to_port[dpid]:
+                out_port = self.mac_to_port[dpid][eth_dst]
+            else:
+                out_port = ofp.OFPP_FLOOD
+
+        actions = [parser.OFPActionOutput(out_port)]
+
+        if out_port != ofp.OFPP_FLOOD:
+            match = parser.OFPMatch(in_port=ofp.OFPP_ANY, eth_dst=eth_dst)
+            self.add_flow(dp, 10, match, actions)
+
+        data = None
+        if msg.buffer_id == ofp.OFP_NO_BUFFER:
+            data = msg.data
+
+        out = parser.OFPPacketOut(
+            datapath=dp,
+            buffer_id=msg.buffer_id,
+            in_port=in_port,
+            actions=actions,
+            data=data,
+        )
+        dp.send_msg(out)
 
     def ipv4_handler(self, ipv4_pkt, msg):
         pass
@@ -198,7 +258,7 @@ class Switch(app_manager.RyuApp):
                                 break
                         if find_final:
                             break
-                        
+
                     new_path = nx.dijkstra_path(self.topo_map, dpid_begin, dpid_final)
                     old_path = self.shortest_paths[(ip_src, ip_dst)]
                     if new_path != old_path:
@@ -206,7 +266,7 @@ class Switch(app_manager.RyuApp):
                         self.delete_flow_entry(old_path, ip_src, ip_dst)
         else:
             reson = "UNKNOWN"
-            
+
         print(f"{dpid} port {port_no} is {reson}")
 
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
