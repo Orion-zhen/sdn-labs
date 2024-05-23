@@ -55,6 +55,19 @@ class Switch(app_manager.RyuApp):
         self.delay_thread = hub.spawn(self.get_delay)
         self.echo_thread = hub.spawn(self.send_echo_request)
 
+    def clear_all(self):
+        self.topo_map.clear()
+        self.mac_to_port.clear()
+        self.arp_in_port.clear()
+        self.switch_host.clear()
+        self.switch_switch.clear()
+        self.switches = None
+        self.shortest_paths.clear()
+        self.datapath.clear()
+        self.echo_delay.clear()
+        self.lldp_delay.clear()
+        self.echo_start.clear()
+
     def add_flow(
         self, datapath, priority, match, actions, idle_timeout=0, hard_timeout=0
     ):
@@ -135,7 +148,23 @@ class Switch(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def port_status_handler(self, ev):
-        pass
+        msg = ev.msg
+        dp = msg.datapath
+        ofp = dp.ofproto
+        desc = msg.desc
+        port_no = desc.port_no
+        reason = None
+
+        if msg.reason == ofp.OFPPR_MODIFY:
+            reason = "MODIFY"
+            self.delete_all_flow()
+            self.clear_all()
+        elif msg.reason == ofp.OFPPR_ADD:
+            reason = "ADD"
+        elif msg.reason == ofp.OFPPR_DELETE:
+            reason = "DELETE"
+
+        print(f"OFPPortStatus: switch {dp.id}, port {port_no}, reason {reason}")
 
     def handle_lldp(self, lldp_pkt, msg):
         dpid = msg.datapath.id
@@ -188,7 +217,9 @@ class Switch(app_manager.RyuApp):
             elif arp_dst_ip not in self.arp_in_port[dpid][arp_src_mac].keys():
                 self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
             elif in_port != self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]:
-                print("Drop an arp request to avoid loop storm.")
+                print(
+                    f"SW[{dpid}] packet in port {in_port}, but should be {self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]}. DROP"
+                )
                 return
 
             out_port = ofp.OFPP_FLOOD
@@ -206,7 +237,7 @@ class Switch(app_manager.RyuApp):
         actions = [parser.OFPActionOutput(out_port)]
         if out_port != ofp.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=eth_dst)
-            self.add_flow(msg.datapath, 10, match, actions, 90, 180)
+            self.add_flow(msg.datapath, 10, match, actions, 5, 10)
 
         data = None
         if msg.buffer_id == ofp.OFP_NO_BUFFER:
@@ -273,7 +304,7 @@ class Switch(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     eth_type=0x800, ipv4_src=ipv4_dst, ipv4_dst=ipv4_src
                 )
-                self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
+                self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
 
                 # forward
                 out_port = self.switch_switch[cur_switch][next_switch]
@@ -281,7 +312,7 @@ class Switch(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=ipv4_dst
                 )
-                self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
+                self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
 
             elif i == len(short_path) - 1:
                 pre_switch = short_path[i - 1]
@@ -294,7 +325,7 @@ class Switch(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     eth_type=0x800, ipv4_src=ipv4_dst, ipv4_dst=ipv4_src
                 )
-                self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
+                self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
 
                 # forward
                 out_port = port_final
@@ -302,7 +333,7 @@ class Switch(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=ipv4_dst
                 )
-                self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
+                self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
 
             else:
                 pre_switch = short_path[i - 1]
@@ -325,7 +356,7 @@ class Switch(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     eth_type=0x800, ipv4_src=ipv4_dst, ipv4_dst=ipv4_src
                 )
-                self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
+                self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
 
                 # forward
                 out_port = port2
@@ -333,7 +364,7 @@ class Switch(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=ipv4_dst
                 )
-                self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
+                self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
 
         path = path + ":" + str(port_final) + " -> " + str(ipv4_dst)
         print(path)
@@ -394,55 +425,8 @@ class Switch(app_manager.RyuApp):
             print("get delay thread done!")
             hub.sleep(GET_DELAY_INTERVAL)
 
-    def delete_flow_entry(self, path, ipv4_src, iv4_dst):
+    def delete_all_flow(self):
         print(f"Deleting flow entry")
-        self.arp_in_port.clear()
-        self.mac_to_port.clear()
-
-        for dpid in path:
-            dp = self.datapath[dpid]
-            parser = dp.ofproto_parser
-            ofp = dp.ofproto
-
-            # forward
-            match = parser.OFPMatch(eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=iv4_dst)
-            mod = parser.OFPFlowMod(
-                datapath=dp,
-                cookie=0,
-                cookie_mask=0,
-                table_id=0,
-                command=ofp.OFPFC_DELETE,
-                idle_timeout=0,
-                hard_timeout=0,
-                priority=1,
-                buffer_id=ofp.OFPCML_NO_BUFFER,
-                out_port=ofp.OFPP_ANY,
-                out_group=ofp.OFPG_ANY,
-                flags=0,
-                match=match,
-                instructions=None,
-            )
-            dp.send_msg(mod)
-
-            # backward
-            match = parser.OFPMatch(eth_type=0x800, ipv4_src=iv4_dst, ipv4_dst=ipv4_src)
-            mod = parser.OFPFlowMod(
-                datapath=dp,
-                cookie=0,
-                cookie_mask=0,
-                table_id=0,
-                command=ofp.OFPFC_DELETE,
-                idle_timeout=0,
-                hard_timeout=0,
-                priority=1,
-                buffer_id=ofp.OFPCML_NO_BUFFER,
-                out_port=ofp.OFPP_ANY,
-                out_group=ofp.OFPG_ANY,
-                flags=0,
-                match=match,
-                instructions=None,
-            )
-            dp.send_msg(mod)
 
         for dp in self.datapath.values():
             parser = dp.ofproto_parser
@@ -456,11 +440,11 @@ class Switch(app_manager.RyuApp):
                 command=ofp.OFPFC_DELETE,
                 idle_timeout=0,
                 hard_timeout=0,
-                priority=10,
-                buffer_id=ofp.OFPCML_NO_BUFFER,
+                priority=20,
+                buffer_id=ofp.OFP_NO_BUFFER,
                 out_port=ofp.OFPP_ANY,
                 out_group=ofp.OFPG_ANY,
-                flags=0,
+                flags=ofp.OFPFF_SEND_FLOW_REM,
                 match=match,
                 instructions=None,
             )
