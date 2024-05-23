@@ -245,6 +245,12 @@ class Switch(app_manager.RyuApp):
             )
             msg.datapath.send_msg(out)
 
+    def _add_flow(self, parser, cur_switch, ipv4_src, ipv4_dst, in_port, out_port):
+
+        match = parser.OFPMatch(eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=ipv4_dst)
+        actions = [parser.OFPActionOutput(out_port)]
+        self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
+
     def handle_ipv4(self, ipv4_pkt, msg):
         ofp = msg.datapath.ofproto
         parser = msg.datapath.ofproto_parser
@@ -272,14 +278,13 @@ class Switch(app_manager.RyuApp):
         min_delay = nx.dijkstra_path_length(self.topo_map, dpid_begin, dpid_final)
         print(f"Fastest path found: {short_path}, delay is {min_delay * 1000}")
 
-        path = str(ipv4_src) + " -> " + str(port_begin) + ":s" + str(dpid_begin)
+        path = f"{ipv4_src} -> {port_begin}:s{dpid_begin}"
 
-        for i in range(0, len(short_path)):
-            cur_switch = short_path[i]
+        for i, cur_switch in enumerate(short_path):
             if i == 0:
                 next_switch = short_path[i + 1]
                 port = self.switch_switch[cur_switch][next_switch]
-                path = path + ":" + str(port) + " -> "
+                path += f":{port} -> "
 
                 # backwrd
                 out_port = port_begin
@@ -300,7 +305,7 @@ class Switch(app_manager.RyuApp):
             elif i == len(short_path) - 1:
                 pre_switch = short_path[i - 1]
                 port = self.switch_switch[cur_switch][pre_switch]
-                path = path + str(port) + ":s" + str(cur_switch)
+                path += f"{port}:s{cur_switch}"
 
                 # backward
                 out_port = port
@@ -323,15 +328,7 @@ class Switch(app_manager.RyuApp):
                 next_switch = short_path[i + 1]
                 port1 = self.switch_switch[cur_switch][pre_switch]
                 port2 = self.switch_switch[cur_switch][next_switch]
-                path = (
-                    path
-                    + str(port1)
-                    + ":s"
-                    + str(cur_switch)
-                    + ":"
-                    + str(port2)
-                    + " -> "
-                )
+                path += f"{port1}:s{cur_switch}:{port2} -> "
 
                 # backward
                 out_port = port1
@@ -348,8 +345,7 @@ class Switch(app_manager.RyuApp):
                     eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=ipv4_dst
                 )
                 self.add_flow(self.datapath[cur_switch], 20, match, actions, 5, 10)
-
-        path = path + ":" + str(port_final) + " -> " + str(ipv4_dst)
+        path += f":{port_final} -> {ipv4_dst}"
         print(path)
 
         out_port = self.switch_switch[short_path[0]][short_path[1]]
