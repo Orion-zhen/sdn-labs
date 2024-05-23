@@ -177,7 +177,7 @@ class Switch(app_manager.RyuApp):
             return
         if self.switches is None:
             self.switches = lookup_service_brick("switches")
-        
+
         for port in self.switches.ports.keys():
             if src_dpid == port.dpid and src_port_no == port.port_no:
                 self.lldp_delay[(src_dpid, dpid)] = self.switches.ports[port].delay
@@ -252,32 +252,21 @@ class Switch(app_manager.RyuApp):
         ipv4_src = ipv4_pkt.src
         ipv4_dst = ipv4_pkt.dst
 
-        dpid_begin = None
-        dpid_final = None
-        port_begin = None
-        port_final = None
+        dpid_begin = next(
+            (dpid for dpid, ip_dict in self.switch_host.items() if ipv4_src in ip_dict),
+            None,
+        )
+        port_begin = (
+            self.switch_host.get(dpid_begin, {}).get(ipv4_src) if dpid_begin else None
+        )
 
-        find_begin = False
-        for dpid in self.switch_host.keys():
-            for ip in self.switch_host[dpid].keys():
-                if ip == ipv4_src:
-                    port_begin = self.switch_host[dpid][ip]
-                    dpid_begin = dpid
-                    find_begin = True
-                    break
-            if find_begin:
-                break
-
-        find_final = False
-        for dpid in self.switch_host.keys():
-            for ip in self.switch_host[dpid].keys():
-                if ip == ipv4_dst:
-                    port_final = self.switch_host[dpid][ip]
-                    dpid_final = dpid
-                    find_final = True
-                    break
-            if find_final:
-                break
+        dpid_final = next(
+            (dpid for dpid, ip_dict in self.switch_host.items() if ipv4_dst in ip_dict),
+            None,
+        )
+        port_final = (
+            self.switch_host.get(dpid_final, {}).get(ipv4_dst) if dpid_final else None
+        )
 
         short_path = nx.dijkstra_path(self.topo_map, dpid_begin, dpid_final)
         min_delay = nx.dijkstra_path_length(self.topo_map, dpid_begin, dpid_final)
