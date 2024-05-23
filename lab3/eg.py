@@ -133,6 +133,10 @@ class Switch(app_manager.RyuApp):
         self.echo_delay[dpid] = now - self.echo_start[dpid]
         # print('echo_delay is {}'.format(self.echo_delay))
 
+    @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
+    def port_status_handler(self, ev):
+        pass
+
     def handle_lldp(self, lldp_pkt, msg):
         dpid = msg.datapath.id
         try:
