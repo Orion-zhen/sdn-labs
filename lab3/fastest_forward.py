@@ -177,7 +177,7 @@ class Switch(app_manager.RyuApp):
             return
         if self.switches is None:
             self.switches = lookup_service_brick("switches")
-        # print('lldp switches {}'.format(self.switches))
+        
         for port in self.switches.ports.keys():
             if src_dpid == port.dpid and src_port_no == port.port_no:
                 self.lldp_delay[(src_dpid, dpid)] = self.switches.ports[port].delay
@@ -197,13 +197,7 @@ class Switch(app_manager.RyuApp):
         in_port = msg.match["in_port"]
 
         # determin if a switch-host link
-        host = True
-        for tmp in self.switch_switch[dpid].keys():
-            if in_port == self.switch_switch[dpid][tmp]:
-                host = False
-                break
-
-        if host:
+        if in_port not in self.switch_switch[dpid].values():
             arp_src_ip = arp_pkt.src_ip
             self.switch_host[dpid][arp_src_ip] = in_port
 
