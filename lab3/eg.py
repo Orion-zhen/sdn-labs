@@ -23,14 +23,34 @@ class Switch(app_manager.RyuApp):
         self.mac_to_port = {}
         self.arp_in_port = {}
         self.topo_map = nx.Graph()
+
+        # link between switches
+        # switch_switch[dpid][linked_dpid] = port
         self.switch_switch = {}
+
+        # link between host and switch
+        # switch_host[dpid][host_ip] = port
         self.switch_host = {}
+
+        # datapath[dpid] = datapath
         self.datapath = {}
+
+        # remain uninitialized until lldp_handler called
+        # all switches for lookup_service_brick()
         self.switches = None
+
+        # lldp_delay[(dpid, linked_dpid)] = seconds
         self.lldp_delay = {}
+
+        # echo_delay[dpid] = seconds
         self.echo_delay = {}
+
+        # echo_start[dpid] = timestamp
         self.echo_start = {}
+
+        # shortest_paths[(start, end)] = [sw1, sw2, ...]
         self.shortest_paths = {}
+
         self.topo_thread = hub.spawn(self.get_topology)
         self.delay_thread = hub.spawn(self.get_delay)
         self.echo_thread = hub.spawn(self.send_echo_request)
@@ -67,12 +87,16 @@ class Switch(app_manager.RyuApp):
         msg = ev.msg
         dp = msg.datapath
         dpid = dp.id
+        # record the datapath
         self.datapath[dpid] = dp
+        # init for self learning
         self.mac_to_port.setdefault(dpid, {})
+        # init to avoid arp storm
         self.arp_in_port.setdefault(dpid, {})
         self.switch_host.setdefault(dpid, {})
 
         pkt = packet.Packet(msg.data)
+        # try to get different protocols
         eth_pkt = pkt.get_protocol(ethernet.ethernet)
         lldp_pkt = pkt.get_protocol(lldp.lldp)
         arp_pkt = pkt.get_protocol(arp.arp)
@@ -92,13 +116,13 @@ class Switch(app_manager.RyuApp):
 
         # if is arp call function to handle
         if isinstance(arp_pkt, arp.arp):
-            print("handle an arp packet {}".format(arp_pkt))
+            print(f"handle an arp packet {arp_pkt}")
             self.handle_arp(arp_pkt, msg)
 
         # if is ipv4 call function to handle
         if isinstance(ipv4_pkt, ipv4.ipv4):
-            print("handle an ipv4 packet {}".format(ipv4_pkt))
-            print("eth_src is {} and eth_dst is {}".format(eth_src, eth_pkt.dst))
+            print(f"handle an ipv4 packet {ipv4_pkt}")
+            print(f"eth_src is {eth_src} and eth_dst is {eth_pkt.dst}")
             self.handle_ipv4(ipv4_pkt, msg)
 
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
@@ -139,6 +163,7 @@ class Switch(app_manager.RyuApp):
         parser = msg.datapath.ofproto_parser
         in_port = msg.match["in_port"]
 
+        # determin if a switch-host link
         host = True
         for tmp in self.switch_switch[dpid].keys():
             if in_port == self.switch_switch[dpid][tmp]:
@@ -229,13 +254,9 @@ class Switch(app_manager.RyuApp):
 
         short_path = nx.dijkstra_path(self.topo_map, dpid_begin, dpid_final)
         min_delay = nx.dijkstra_path_length(self.topo_map, dpid_begin, dpid_final)
-        print(
-            "nx find the shortest path {}, the min_delay is {}".format(
-                short_path, min_delay * 1000
-            )
-        )
+        print(f"Fastest path found: {short_path}, delay is {min_delay * 1000}")
 
-        path = str(ipv4_src) + "-->" + str(port_begin) + ":" + str(dpid_begin)
+        path = str(ipv4_src) + " -> " + str(port_begin) + ":s" + str(dpid_begin)
 
         for i in range(0, len(short_path)):
             cur_switch = short_path[i]
@@ -244,6 +265,7 @@ class Switch(app_manager.RyuApp):
                 port = self.switch_switch[cur_switch][next_switch]
                 path = path + ":" + str(port) + "-->"
 
+                # backwrd
                 out_port = port_begin
                 actions = [parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(
@@ -251,6 +273,7 @@ class Switch(app_manager.RyuApp):
                 )
                 self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
 
+                # forward
                 out_port = self.switch_switch[cur_switch][next_switch]
                 actions = [parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(
@@ -263,6 +286,7 @@ class Switch(app_manager.RyuApp):
                 port = self.switch_switch[cur_switch][pre_switch]
                 path = path + str(port) + ":" + str(cur_switch)
 
+                # backward
                 out_port = port
                 actions = [parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(
@@ -270,6 +294,7 @@ class Switch(app_manager.RyuApp):
                 )
                 self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
 
+                # forward
                 out_port = port_final
                 actions = [parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(
@@ -283,9 +308,10 @@ class Switch(app_manager.RyuApp):
                 port1 = self.switch_switch[cur_switch][pre_switch]
                 port2 = self.switch_switch[cur_switch][next_switch]
                 path = (
-                    path + str(port1) + ":" + str(cur_switch) + ":" + str(port2) + "-->"
+                    path + str(port1) + ":" + str(cur_switch) + ":" + str(port2) + " -> "
                 )
 
+                # backward
                 out_port = port1
                 actions = [parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(
@@ -293,6 +319,7 @@ class Switch(app_manager.RyuApp):
                 )
                 self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
 
+                # forward
                 out_port = port2
                 actions = [parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(
@@ -300,7 +327,7 @@ class Switch(app_manager.RyuApp):
                 )
                 self.add_flow(self.datapath[cur_switch], 20, match, actions, 300, 600)
 
-        path = path + ":" + str(port_final) + "-->" + str(ipv4_dst)
+        path = path + ":" + str(port_final) + " -> " + str(ipv4_dst)
         print(path)
 
         out_port = self.switch_switch[short_path[0]][short_path[1]]
@@ -350,11 +377,11 @@ class Switch(app_manager.RyuApp):
                     - self.echo_delay[edge[0]]
                     - self.echo_delay[edge[1]]
                 ) / 2
-                
+
                 if weight < 0:
                     weight = 0
-                    
-                self.topo_map[edge[0]][edge[1]]['weight'] = weight
-            
-            print('get_dealy thread done!')
+
+                self.topo_map[edge[0]][edge[1]]["weight"] = weight
+
+            print("get delay thread done!")
             hub.sleep(GET_DELAY_INTERVAL)
