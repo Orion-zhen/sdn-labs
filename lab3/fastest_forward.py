@@ -393,3 +393,75 @@ class Switch(app_manager.RyuApp):
 
             print("get delay thread done!")
             hub.sleep(GET_DELAY_INTERVAL)
+
+    def delete_flow_entry(self, path, ipv4_src, iv4_dst):
+        print(f"Deleting flow entry")
+        self.arp_in_port.clear()
+        self.mac_to_port.clear()
+
+        for dpid in path:
+            dp = self.datapath[dpid]
+            parser = dp.ofproto_parser
+            ofp = dp.ofproto
+
+            # forward
+            match = parser.OFPMatch(eth_type=0x800, ipv4_src=ipv4_src, ipv4_dst=iv4_dst)
+            mod = parser.OFPFlowMod(
+                datapath=dp,
+                cookie=0,
+                cookie_mask=0,
+                table_id=0,
+                command=ofp.OFPFC_DELETE,
+                idle_timeout=0,
+                hard_timeout=0,
+                priority=1,
+                buffer_id=ofp.OFPCML_NO_BUFFER,
+                out_port=ofp.OFPP_ANY,
+                out_group=ofp.OFPG_ANY,
+                flags=0,
+                match=match,
+                instructions=None,
+            )
+            dp.send_msg(mod)
+
+            # backward
+            match = parser.OFPMatch(eth_type=0x800, ipv4_src=iv4_dst, ipv4_dst=ipv4_src)
+            mod = parser.OFPFlowMod(
+                datapath=dp,
+                cookie=0,
+                cookie_mask=0,
+                table_id=0,
+                command=ofp.OFPFC_DELETE,
+                idle_timeout=0,
+                hard_timeout=0,
+                priority=1,
+                buffer_id=ofp.OFPCML_NO_BUFFER,
+                out_port=ofp.OFPP_ANY,
+                out_group=ofp.OFPG_ANY,
+                flags=0,
+                match=match,
+                instructions=None,
+            )
+            dp.send_msg(mod)
+
+        for dp in self.datapath.values():
+            parser = dp.ofproto_parser
+            ofp = dp.ofproto
+            match = parser.OFPMatch(in_port=ofp.OFPP_ANY)
+            mod = parser.OFPFlowMod(
+                datapath=dp,
+                cookie=0,
+                cookie_mask=0,
+                table_id=0,
+                command=ofp.OFPFC_DELETE,
+                idle_timeout=0,
+                hard_timeout=0,
+                priority=10,
+                buffer_id=ofp.OFPCML_NO_BUFFER,
+                out_port=ofp.OFPP_ANY,
+                out_group=ofp.OFPG_ANY,
+                flags=0,
+                match=match,
+                instructions=None,
+            )
+            dp.send_msg(mod)
