@@ -185,13 +185,11 @@ class Switch(app_manager.RyuApp):
             if arp_src_mac not in self.arp_in_port[dpid].keys():
                 self.arp_in_port[dpid].setdefault(arp_src_mac, {})
                 self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
-            else:
-                if arp_dst_ip not in self.arp_in_port[dpid][arp_src_mac].keys():
-                    self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
-                else:
-                    if in_port != self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]:
-                        print("Drop an arp request to avoid loop storm.")
-                        return
+            elif arp_dst_ip not in self.arp_in_port[dpid][arp_src_mac].keys():
+                self.arp_in_port[dpid][arp_src_mac][arp_dst_ip] = in_port
+            elif in_port != self.arp_in_port[dpid][arp_src_mac][arp_dst_ip]:
+                print("Drop an arp request to avoid loop storm.")
+                return
 
             out_port = ofp.OFPP_FLOOD
 
