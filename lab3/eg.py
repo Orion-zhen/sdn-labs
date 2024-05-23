@@ -263,7 +263,7 @@ class Switch(app_manager.RyuApp):
             if i == 0:
                 next_switch = short_path[i + 1]
                 port = self.switch_switch[cur_switch][next_switch]
-                path = path + ":" + str(port) + "-->"
+                path = path + ":" + str(port) + " -> "
 
                 # backwrd
                 out_port = port_begin
@@ -308,7 +308,13 @@ class Switch(app_manager.RyuApp):
                 port1 = self.switch_switch[cur_switch][pre_switch]
                 port2 = self.switch_switch[cur_switch][next_switch]
                 path = (
-                    path + str(port1) + ":" + str(cur_switch) + ":" + str(port2) + " -> "
+                    path
+                    + str(port1)
+                    + ":"
+                    + str(cur_switch)
+                    + ":"
+                    + str(port2)
+                    + " -> "
                 )
 
                 # backward
