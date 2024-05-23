@@ -365,8 +365,7 @@ class Switch(app_manager.RyuApp):
     def get_topology(self):
         while True:
             switch_list = get_switch(self)
-            for switch in switch_list:
-                self.switch_switch.setdefault(switch.dp.id, {})
+            self.switch_switch.update({switch.dp.id: {} for switch in switch_list})
             link_list = get_link(self)
             for link in link_list:
                 self.switch_switch[link.src.dpid][link.dst.dpid] = link.src.port_no
@@ -377,11 +376,8 @@ class Switch(app_manager.RyuApp):
     def send_echo_request(self):
         while True:
             for dp in self.datapath.values():
-                data = None
                 parser = dp.ofproto_parser
-                req = parser.OFPEchoRequest(dp, data)
-                dp.send_msg(req)
-
+                dp.send_msg(parser.OFPEchoRequest(dp, data=None))
                 self.echo_start[dp.id] = time.time()
 
             hub.sleep(SEND_ECHO_REQUEST_INTERVAL)
@@ -389,19 +385,17 @@ class Switch(app_manager.RyuApp):
     def get_delay(self):
         while True:
             for edge in self.topo_map.edges:
-                weight = (
-                    self.lldp_delay[(edge[0], edge[1])]
-                    + self.lldp_delay[(edge[1], edge[0])]
+                # lldp(A->B) + lldp(B->A) - echo(A) - echo(B)
+                delay_sum = (
+                    self.lldp_delay[edge]
+                    + self.lldp_delay[edge[::-1]]
                     - self.echo_delay[edge[0]]
                     - self.echo_delay[edge[1]]
-                ) / 2
-
-                if weight < 0:
-                    weight = 0
-
+                )
+                weight = max(0, delay_sum / 2)
                 self.topo_map[edge[0]][edge[1]]["weight"] = weight
 
-            print("get delay thread done!")
+            print("Thread: all delay calculated!")
             hub.sleep(GET_DELAY_INTERVAL)
 
     def delete_all_flow(self):
