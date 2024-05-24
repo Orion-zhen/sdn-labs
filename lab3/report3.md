@@ -4,6 +4,10 @@
 
 本次实验需要对ryu进行一些修改, 我已经上传到[github仓库](https://github.com/Orion-zhen/ryu-xjtu)
 
+<span style="color: red">为了使代码中设定的链路时延能够起作用, 需要加上命令行参数: --link=tc</span>
+
+即: `sudo mn --custom lab3/topo_1970.py --topo generated --controller remote --link=tc`
+
 ## 观测LLDP时延
 
 根据指导书中的公式, `s1-s2`的时延为:
